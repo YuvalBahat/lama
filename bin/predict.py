@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 import traceback
-
+sys.path.append("/tigress/yb6751/projects/lama")
 from saicinpainting.evaluation.utils import move_to_device
 
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -64,26 +64,30 @@ def main(predict_config: OmegaConf):
         dataset = make_default_val_dataset(predict_config.indir, **predict_config.dataset)
         with torch.no_grad():
             for img_i in tqdm.trange(len(dataset)):
-                mask_fname = dataset.mask_filenames[img_i]
-                cur_out_fname = os.path.join(
-                    predict_config.outdir, 
-                    os.path.splitext(mask_fname[len(predict_config.indir):])[0] + out_ext
-                )
-                os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
+                for mask_th in list(getattr(predict_config,"mask_threshold",[0])):
+                    mask_fname = dataset.mask_filenames[img_i]
+                    cur_out_fname = os.path.join(
+                        predict_config.outdir, 
+                        os.path.splitext(mask_fname[len(predict_config.indir):])[0]+str(mask_th) + out_ext
+                    )
+                    os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
 
-                batch = move_to_device(default_collate([dataset[img_i]]), device)
-                batch['mask'] = (batch['mask'] > 0) * 1
-                batch = model(batch)
-                cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
+                    batch = move_to_device(default_collate([dataset[img_i]]), device)
+                    batch['mask'] = (batch['mask'] > mask_th) * 1
+                    batch = model(batch)
+                    cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
+                    cur_mask = batch['mask'][0].permute(1, 2, 0).detach().cpu().numpy()
 
-                unpad_to_size = batch.get('unpad_to_size', None)
-                if unpad_to_size is not None:
-                    orig_height, orig_width = unpad_to_size
-                    cur_res = cur_res[:orig_height, :orig_width]
+                    unpad_to_size = batch.get('unpad_to_size', None)
+                    if unpad_to_size is not None:
+                        orig_height, orig_width = unpad_to_size
+                        cur_res = cur_res[:orig_height, :orig_width]
+                        cur_mask = cur_mask[:orig_height, :orig_width]
 
-                cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
-                cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(cur_out_fname, cur_res)
+                    cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
+                    cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(cur_out_fname, cur_res)
+                    cv2.imwrite(cur_out_fname.replace(".png","_mask.png"), 255*cur_mask)
     except KeyboardInterrupt:
         LOGGER.warning('Interrupted by user')
     except Exception as ex:

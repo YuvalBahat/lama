@@ -132,6 +132,9 @@ dmypy.json
 ## IDEA
 .idea/
 ## vscode
-.vscode/
 ## vim
 *.sw?
+inputs/*.png
+outputs/*
+*.zip
+big-lama
